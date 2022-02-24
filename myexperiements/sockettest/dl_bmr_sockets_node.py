@@ -72,7 +72,7 @@ class DL2Node (BM):
         tx = tx_generator(250)  # Set each dummy TX to be 250 Byte
         if self.mode == 'test' or 'debug': #K * max(Bfast * S, Bacs)
             k = 0
-            for r in range(max(self.B * 50, 1)):
+            for r in range(max(self.B * self.K, 1)):
                 suffix = hex(self.id) + hex(r) + ">"
                 BM.submit_tx(self, tx[:-len(suffix)] + suffix)
                 # print("submit to buffer: ", tx[:-len(suffix)] + suffix)

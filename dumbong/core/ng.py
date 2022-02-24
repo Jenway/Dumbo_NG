@@ -19,7 +19,7 @@ from gevent import Greenlet
 from gevent.queue import Queue
 from honeybadgerbft.core.honeybadger_block import honeybadger_block
 from honeybadgerbft.exceptions import UnknownTagError
-from xdumbo.core.nwabc import nwatomicbroadcast
+from dumbong.core.nwabc import nwatomicbroadcast
 
 
 def set_consensus_log(id: int):
@@ -70,7 +70,7 @@ def broadcast_receiver_loop(recv_func, recv_queues):
             traceback.print_exc(e)
 
 
-class XDumbo:
+class Dumbo_NG:
     def __init__(self, sid, pid, S, B, N, f, sPK, sSK, sPK1, sSK1, sPK2s, sSK2, ePK, eSK, send, recv, K=3, mute=False,
                  debug=False):
 

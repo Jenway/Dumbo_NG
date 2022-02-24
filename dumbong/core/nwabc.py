@@ -47,27 +47,20 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                 sent after receiving ``PROPOSAL`` message
 
     """
-    #if os.getpid() != pro:
-    #    print("this")
-    #    return
-    print("pd start pid:", pid, "leder:",leader, os.getpid())
     assert N >= 3 * f + 1
     assert f >= 0
     assert 0 <= leader < N
     assert 0 <= pid < N
-    # K = N - 2 * f  # Need this many to reconstruct. (# noqa: E221)
-    # EchoThreshold = N - f  # Wait for this many ECHO to send READY. (# noqa: E221)
-    # ReadyThreshold = f + 1  # Wait for this many READY to amplify READY. (# noqa: E221)
     SignThreshold = 2 * f + 1  # Wait for this many READY to output
     s = 1
     Initsnum = 100
     BATCH_SIZE= Bsize
     proposals = defaultdict()
-    combine_sig = defaultdict()
     Txs = defaultdict(lambda: Queue())
     Sigmas = defaultdict(lambda: Queue(1))
-    voters = defaultdict(lambda:set())
-    votes = defaultdict(lambda : dict())
+    sts = defaultdict(lambda: Queue(1))
+    voters = defaultdict(lambda: set())
+    votes = defaultdict(lambda: dict())
 
     stop = 0
     # print(pid, "start to run ", sid)
@@ -80,16 +73,16 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
         return hashlib.sha256(pickle.dumps(x)).digest()
 
     def broadcast(o):
-         #for i in range(N):
-            # send(i, o)
-         send(-1, o)
+        # for i in range(N):
+        # send(i, o)
+        send(-1, o)
 
     if pid == leader:
         # print()
         proposals[1] = json.dumps([input() for _ in range(BATCH_SIZE)])
         # if logger is not None: logger.info("input:", proposals[1])
         # print(pid,  "start as leader in ", sid, proposals[1])
-        broadcast(('PROPOSAL', sid, s, proposals[1], 0))
+        broadcast(('PROPOSAL', sid, s, proposals[1], time.time(), 0))
     stop = 0
 
     s_time = time.time()
@@ -100,7 +93,6 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
             sender, msg = receive(timeout=1000)
             # print(msg[0])
             assert sender in range(N)
-            # print(pid, "receive", sender, msg[0])
 
             if stop != 0:
                 # if logger is not None: logger.info("this nw-abc is stopped")
@@ -108,9 +100,7 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
 
             if msg[0] == 'PROPOSAL':
                 nonlocal sid
-                # print("-----------------------")
-                # print( pid, "receive proposal :", msg)
-                (_, sid_r, r, tx, sigma) = msg
+                (_, sid_r, r, tx, st, sigma) = msg
                 if sender != leader:
                     if logger is not None: logger.info("PROPOSAL message from other than leader: %d" % sender)
                     continue
@@ -120,18 +110,20 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                     #digest1 = PK1.hash_message(str((sid, r, tx)))
                     #send(leader, (sid, r, serialize(SK1.sign(digest1))))
                     Txs[r].put_nowait(tx)
+                    sts[r].put_nowait(st)
                     # print(pid,"put msg 0 in set")
 
                     # Sigmas[r-1].put_nowait(sigma)
                 elif r > 1:
-                    # sigma = deserialize1(raw_sigma)
                     Txs[r].put_nowait(tx)
                     Sigmas[r-1].put_nowait(sigma)
-                    # print(pid," stores tx", r, " in ", sid)
+                    sts[r].put_nowait(st)
 
             if msg[0] == 'VOTE' and pid == leader:
                 # print ("receive", sender, "'s vote of round ", r, msg[1])
                 (_, sid, r, sigsh) = msg
+                if r < s - 5:
+                    continue
                 if len(voters[r]) >= N - f:
                     continue
 
@@ -150,10 +142,7 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                         continue
                     voters[r].add(sender)
                     votes[r][sender]=sigsh
-                    # print("received voters:", voters)
                     if len(voters[r]) == N - f:
-                        # sigmas1 = dict(list(votes[r].items())[:N - f])
-                        # Sigma1 = PK1.combine_shares(sigmas1)
                         Sigma1 = tuple(votes[r].items())
                         try:
                             proposals[r+1] = json.dumps([input() for _ in range(BATCH_SIZE)])
@@ -161,8 +150,8 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                         except  Exception as e:
                             if logger is not None: logger.info("all msg in buffer has been sent!")
                             proposals[r + 1] = 0
-                            broadcast(('PROPOSAL', sid, r + 1, proposals[r + 1], Sigma1))
-                        broadcast(('PROPOSAL', sid, r+1, proposals[r+1], Sigma1))
+                            broadcast(('PROPOSAL', sid, r + 1, proposals[r + 1], time.time(), Sigma1))
+                        broadcast(('PROPOSAL', sid, r+1, proposals[r+1], time.time(), Sigma1))
                         # print("broadcasted", ('PROPOSAL', sid, r + 1, proposals[r+1], serialize(Sigma1)))
 
             gevent.sleep(0)
@@ -176,17 +165,13 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
             if s > 1:
                 try:
                     last_sigs = Sigmas[s-1].get()
+                    last_st = sts[s-1].get()
+                    del Sigmas[s-1]
+                    del sts[s-1]
                 except Exception as e:
                     if logger is not None: logger.info("fail to get sigmas of tx in round %d" % s-1)
                     continue
 
-
-                #try:
-                 #   digest2 = hash(str((sid, s-1, last_tx)))
-                 #   assert PK1.verify_signature(last_sigs, digest2)
-                #except Exception as e:
-                 #   if logger is not None: logger.info("Failed to validate PROPOSAL message:", e)
-                  #  continue
                 try:
                     assert len(last_sigs) >= N - f
                 except AssertionError:
@@ -204,7 +189,12 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                     if logger is not None: logger.info("ecdsa signature failed!")
                     continue
                 if output is not None:
-                    output((sid, s-1, hash(str(last_tx)), last_sigs))
+                    output((sid, s-1, hash(str(last_tx)), last_sigs, last_st))
+                    if pid == leader:
+                        if s > 20:
+                            del proposals[s-20]
+                            del votes[s-20]
+                            del voters[s-20]
                     # if (s-1) % 10 == 0:
                     # print("output", (sid, s-1))
                     # if pro == 0:
@@ -212,6 +202,7 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
                     gevent.sleep(0)
             try:
                 tx_s = Txs[s].get()
+                del Txs[s]
             except  Exception as e:
                 if logger is not None: logger.info("Failed to get tx!")
                 continue
@@ -227,6 +218,7 @@ def nwatomicbroadcast(sid, pid, N, f, Bsize, PK2s, SK2, leader, input, output, r
             # print(pid, "send vote in round ", s)
             s = s + 1
             last_tx = tx_s
+
 
         gevent.sleep(0)
 
