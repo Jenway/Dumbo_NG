@@ -1,9 +1,9 @@
 from crypto.threshsig import boldyreva
 from crypto.threshenc import tpke
 from crypto.ecdsa import ecdsa
+from pathlib import Path
 import pickle
 import os
-
 
 def trusted_key_gen(N=4, f=1, seed=None):
 
@@ -20,47 +20,33 @@ def trusted_key_gen(N=4, f=1, seed=None):
     sPK2s, sSK2s = ecdsa.pki(N)
 
     # Save all keys to files
-    if 'keys' not in os.listdir(os.getcwd()):
-        os.mkdir(os.getcwd() + '/keys')
+    base_keys_path = Path.cwd() / "keys"
+    key_dir = base_keys_path / f"keys-{N}"
+    key_dir.mkdir(parents=True, exist_ok=True)
 
     # public key of (f+1, n) thld sig
-    with open(os.getcwd() + '/keys/' + 'sPK.key', 'wb') as fp:
-        pickle.dump(sPK, fp)
-
+    (key_dir / "sPK.key").write_bytes(pickle.dumps(sPK))
     # public key of (n-f, n) thld sig
-    with open(os.getcwd() + '/keys/' + 'sPK1.key', 'wb') as fp:
-        pickle.dump(sPK1, fp)
-
+    (key_dir / "sPK1.key").write_bytes(pickle.dumps(sPK1))
     # public key of (f+1, n) thld enc
-    with open(os.getcwd() + '/keys/' + 'ePK.key', 'wb') as fp:
-        pickle.dump(ePK, fp)
+    (key_dir / "ePK.key").write_bytes(pickle.dumps(ePK))
 
-    # public keys of ECDSA
     for i in range(N):
-        with open(os.getcwd() + '/keys/' + 'sPK2-' + str(i) + '.key', 'wb') as fp:
-            pickle.dump(sPK2s[i].format(), fp)
+        # public keys of ECDSA
+        (key_dir / f"sPK2-{i}.key").write_bytes(pickle.dumps(sPK2s[i].format()))
 
-    # private key of (f+1, n) thld sig
-    for i in range(N):
-        with open(os.getcwd() + '/keys/' + 'sSK-' + str(i) + '.key', 'wb') as fp:
-            pickle.dump(sSKs[i], fp)
+        # private key of (f+1, n) thld sig
+        (key_dir / f"sSK-{i}.key").write_bytes(pickle.dumps(sSKs[i]))
 
-    # private key of (n-f, n) thld sig
-    for i in range(N):
-        with open(os.getcwd() + '/keys/' + 'sSK1-' + str(i) + '.key', 'wb') as fp:
-            pickle.dump(sSK1s[i], fp)
+        # private key of (n-f, n) thld sig
+        (key_dir / f"sSK1-{i}.key").write_bytes(pickle.dumps(sSK1s[i]))
 
-    # private key of (f+1, n) thld enc
-    for i in range(N):
-        with open(os.getcwd() + '/keys/' + 'eSK-' + str(i) + '.key', 'wb') as fp:
-            pickle.dump(eSKs[i], fp)
+        # private key of (f+1, n) thld enc
+        (key_dir / f"eSK-{i}.key").write_bytes(pickle.dumps(eSKs[i]))
 
-    # private keys of ECDSA
-    for i in range(N):
-        with open(os.getcwd() + '/keys/' + 'sSK2-' + str(i) + '.key', 'wb') as fp:
-            pickle.dump(sSK2s[i].secret, fp)
-
-
+        # private keys of ECDSA
+        (key_dir / f"sSK2-{i}.key").write_bytes(pickle.dumps(sSK2s[i].secret))
+        
 if __name__ == '__main__':
     
     import argparse
@@ -77,3 +63,16 @@ if __name__ == '__main__':
     assert N >= 3 * f + 1
 
     trusted_key_gen(N, f)
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Trusted Key Generator for BFT Consensus")
+    parser.add_argument('--N', required=True, type=int, help='Total number of parties')
+    parser.add_argument('--f', required=True, type=int, help='Number of faulty parties')
+    args = parser.parse_args()
+
+    if args.N < 3 * args.f + 1:
+        raise ValueError(f"N must be at least 3f+1. Current N={args.N}, f={args.f}")
+
+    trusted_key_gen(args.N, args.f)

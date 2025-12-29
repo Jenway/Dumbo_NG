@@ -1,0 +1,10 @@
+gevent
+numpy
+ecdsa
+gmpy2
+zfec
+gipc
+pycryptodome
+coincurve
+sphinx
+sphinx-rtd-theme
